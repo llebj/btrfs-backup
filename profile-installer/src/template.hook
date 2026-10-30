@@ -1,3 +1,8 @@
+# btrfs-backup #
+
+# Do not delete the first line!
+# It is used to indicate that this file is owned by the btrfs-backup program.
+
 [Trigger]
 Operation = Install
 Operation = Upgrade

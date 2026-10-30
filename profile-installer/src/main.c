@@ -57,12 +57,14 @@ static enum InstallerCode flush(void *ctx, char *buf, size_t buf_size, size_t *w
 
 enum InstallerCode read_profiles(int fd, ssize_t size, char *buf);
 struct profile * map_profiles(struct file_profile *file_profiles, size_t count);
+
 struct slice slice_from(char *s);
 char * make_message(char *format, ...);
 
-static char db_path[]				= "/home/dev/.local/share/az-backup.db";
+static char db_path[]				= "/home/dev/.local/share/btrfs-backup.db";
 static char input_hook_path[]			= "./template.hook";
 static char dest_suffix[]			= "/.snapshots";
+static char hook_directory[]			= "/home/dev/.local/share/btrfs-backup/";
 
 static char source_token[]			= "Source";
 static char destination_token[]			= "Destination";
@@ -152,18 +154,20 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 
-	// reconcile_profiles
 	reconcile_profiles(db, new_profiles, ini.size_section);
 
-	// open template for reading
-	// extract_hook_contents
-	// for hooks
-	//	open output hook for writing
-	//	write hook
+	// TODO: Remove existing hook files.
+	//
+	// Long term we want to rename the existing hooks so that they can be
+	// restored if the current install fails.
+
+	// open hooks dir read only (for use with openat)
 
 	struct stat template_file;
 	stat(input_hook_path, &template_file);
 	int template_fd = open(input_hook_path, O_RDONLY);
+
+	int hooks_directory_fd = open(hook_directory, O_RDONLY);
 
 	for (size_t prof_i = 0; prof_i < ini.size_section; ++prof_i) {
 		uint8_t mask = 1;
@@ -234,9 +238,17 @@ int main(int argc, char **argv)
 			}
 			subs[2].replacement.size = strlen(subs[2].replacement.start);
 
-			char *output_file_path = make_message("./50-%" PRIu64 "-%d.hook", profile.fingerprint, trigger);
+			// Path is relative to the hooks directory.
+			char *output_file_path = make_message("./50-%" PRIu64 "-%d.hook",
+					profile.fingerprint, trigger);
 			// Create the file with 0700 mode, if it doesn't already exist.
-			int output_fd = open(output_file_path, O_WRONLY | O_CREAT, S_IRWXU);
+			int output_fd = openat(hooks_directory_fd, output_file_path,
+					O_WRONLY | O_CREAT, S_IRWXU);
+			if (output_fd < 0) {
+				fprintf(stderr, "Failed to open %s\n", output_file_path);
+				perror("open");
+				exit(EXIT_FAILURE);
+			}
 			struct hook_ctx ctx = {
 				.fd_in = template_fd,
 				.fd_out = output_fd,
@@ -248,7 +260,7 @@ int main(int argc, char **argv)
 			process_stream(fill, flush, &ctx, subs, sizeof subs / sizeof *subs);
 
 			close(output_fd);
-			// We are reading the template file so it must be re-set.
+			// We are re-using the template file so it must be reset.
 			lseek(template_fd, 0, SEEK_SET);
 		}
 	}
