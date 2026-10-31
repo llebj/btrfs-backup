@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#include <dirent.h>
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -23,6 +25,13 @@ struct hook_ctx {
 	       in_size;
 	int fd_out;
 	size_t out_written;
+};
+struct linux_dirent64 {
+	uint64_t	d_ino;		// 64-bit inode number
+	int64_t		d_off;		// Not an offset; see getdents()
+	unsigned short	d_reclen;	// Size of this dirent
+	unsigned char	d_type;		// File type
+	char		d_name[];	// Filename (null-terminated)
 };
 
 static enum InstallerCode fill(void *ctx, char *buf, size_t buf_size, size_t *consumed)
@@ -69,6 +78,7 @@ static char hook_directory[]			= "/home/dev/.local/share/btrfs-backup/";
 static char source_token[]			= "Source";
 static char destination_token[]			= "Destination";
 static char type_token[]			= "Type";
+static char hook_signature[]			= "# btrfs-backup #";
 
 int main(int argc, char **argv)
 {
@@ -156,18 +166,48 @@ int main(int argc, char **argv)
 
 	reconcile_profiles(db, new_profiles, ini.size_section);
 
-	// TODO: Remove existing hook files.
-	//
-	// Long term we want to rename the existing hooks so that they can be
-	// restored if the current install fails.
-
-	// open hooks dir read only (for use with openat)
 
 	struct stat template_file;
 	stat(input_hook_path, &template_file);
 	int template_fd = open(input_hook_path, O_RDONLY);
 
 	int hooks_directory_fd = open(hook_directory, O_RDONLY);
+	char dirents_buf[1024 * 32],
+	     hook_buf[sizeof hook_signature];	// Null-terminator is included
+	struct linux_dirent64 *dirent = NULL;
+
+	for ( ; ; ) {
+		ssize_t bytes_read = getdents64(hooks_directory_fd, dirents_buf, sizeof dirents_buf);
+		if (bytes_read < 0) {
+			fprintf(stderr, "Failed to retrieve directory entries\n");
+			exit(EXIT_FAILURE);
+		}
+		if (bytes_read == 0) {
+			break;
+		}
+
+		for (size_t buf_position = 0; buf_position < bytes_read; buf_position += dirent->d_reclen) {
+			dirent = (struct linux_dirent64 *) (dirents_buf + buf_position);
+			// Btrfs fully supports returning the file type (see getdents64(2))
+			if (dirent->d_type != DT_REG) {
+				continue;
+			}
+
+			// open the file for reading
+			int hook_fd = openat(hooks_directory_fd, dirent->d_name, O_RDONLY);
+			read(hook_fd, hook_buf, sizeof hook_buf - 1);
+			hook_buf[sizeof hook_buf - 1] = '\0';
+			close(hook_fd);
+
+			if (strncmp(hook_buf, hook_signature, sizeof hook_buf) != 0) {
+				continue;
+			}
+
+			// Long term we want to rename the existing hooks so that they can be
+			// restored if the current install fails.
+			unlinkat(hooks_directory_fd, dirent->d_name, 0);
+		}
+	}
 
 	for (size_t prof_i = 0; prof_i < ini.size_section; ++prof_i) {
 		uint8_t mask = 1;
@@ -264,6 +304,9 @@ int main(int argc, char **argv)
 			lseek(template_fd, 0, SEEK_SET);
 		}
 	}
+
+	close(template_fd);
+	close(hooks_directory_fd);
 }
 
 enum InstallerCode read_profiles(int fd, ssize_t size, char *buf)
