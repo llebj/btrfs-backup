@@ -1,3 +1,16 @@
+// TODO: Handle errors
+//
+// This version of the program is somewhat of an MVP and has been developed with only
+// the "happy path" in mind. As such it does not currently handle many of the error
+// codes that may be returned from the syscalls that it makes, mainly around file
+// handling. Some of the functions in this file also directly call `exit`, rather than
+// returning a response code, as is suggested by the function signature.
+//
+// TODO:
+//	- Review error handling
+//	- Add configuration option support (command line args, or config file)
+//	- Proper resource clean-up (file descriptors and allocated memory)
+
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <fcntl.h>
@@ -17,6 +30,7 @@
 #include "parser.h"
 #include "vendor/sqlite3/sqlite3.h"
 
+// I believe that this ID can be calculated once using the CLI tool and just copied in.
 #define APP_ID		SD_ID128_MAKE(e1,dc,79,91,d6,3a,45,36,09,0d,04,2a,c8,2a,50,91)
 
 struct hook_ctx {
@@ -34,38 +48,13 @@ struct linux_dirent64 {
 	char		d_name[];	// Filename (null-terminated)
 };
 
-static enum InstallerCode fill(void *ctx, char *buf, size_t buf_size, size_t *consumed)
-{
-    struct hook_ctx *hook_ctx = ctx;
-    size_t remaining = hook_ctx->in_size - hook_ctx->in_consumed,
-	   wanted = remaining < buf_size ? remaining : buf_size;
-    size_t bytes_read = read(hook_ctx->fd_in, buf, wanted);
-    if (bytes_read <= 0) {
-	    return PI_READ_FAIL;
-    }
-
-    *consumed = bytes_read;
-    hook_ctx->in_consumed += *consumed;
-
-    return PI_OK;
-}
-
-static enum InstallerCode flush(void *ctx, char *buf, size_t buf_size, size_t *written)
-{
-    struct hook_ctx *hook_ctx = ctx;
-    size_t bytes_written = write(hook_ctx->fd_out, buf, buf_size);
-    if (bytes_written < 0) {
-	    return PI_WRITE_FAIL;
-    }
-
-    *written = bytes_written;
-    hook_ctx->out_written += buf_size;
-
-    return PI_OK;
-}
-
 enum InstallerCode read_profiles(int fd, ssize_t size, char *buf);
 struct profile * map_profiles(struct file_profile *file_profiles, size_t count);
+
+enum InstallerCode clear_existing_hooks(int hooks_directory_fd);
+enum InstallerCode write_new_hooks(int hooks_directory_fd, struct profile *profiles, size_t profiles_size);
+static enum InstallerCode fill(void *ctx, char *buf, size_t buf_size, size_t *consumed);
+static enum InstallerCode flush(void *ctx, char *buf, size_t buf_size, size_t *written);
 
 struct slice slice_from(char *s);
 char * make_message(char *format, ...);
@@ -131,20 +120,12 @@ int main(int argc, char **argv)
 
 	struct file_profile *file_profiles;
 	if ((file_profiles = malloc(sizeof *file_profiles * ini.size_section)) == NULL) {
-		close(fd);
-		free(ini.attributes);
-		free(ini.sections);
-		free(fb);
+		// WARN: Need to free resources
 		fprintf(stderr, "Failed to allocate file profiles buffer.\n");
 		exit(EXIT_FAILURE);
 	}
 	if (parse_profiles(&ini, file_profiles) != PI_OK) {
-
-		close(fd);
-		free(file_profiles);
-		free(ini.attributes);
-		free(ini.sections);
-		free(fb);
+		// WARN: Need to free resources
 		fprintf(stderr, "Failed to parse profiles.\n");
 		exit(EXIT_FAILURE);
 	}
@@ -152,6 +133,7 @@ int main(int argc, char **argv)
 	// compute fingerprints for all new profiles
 	struct profile *new_profiles = map_profiles(file_profiles, ini.size_section);
 	if (new_profiles == NULL) {
+		// WARN: Need to free resources
 		fprintf(stderr, "Failed to map profiles.\n");
 		exit(EXIT_SUCCESS);
 	}
@@ -159,153 +141,16 @@ int main(int argc, char **argv)
 	struct sqlite3 *db = NULL;
 	if (sqlite3_open_v2(db_path, &db,
 				SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
+		// WARN: Need to free resources
 		fprintf(stderr, "Failed to open program database: %s\n", sqlite3_errmsg(db));
-		// TODO: free all of the profile memory.
 		exit(EXIT_FAILURE);
 	}
 
 	reconcile_profiles(db, new_profiles, ini.size_section);
 
-
-	struct stat template_file;
-	stat(input_hook_path, &template_file);
-	int template_fd = open(input_hook_path, O_RDONLY);
-
 	int hooks_directory_fd = open(hook_directory, O_RDONLY);
-	char dirents_buf[1024 * 32],
-	     hook_buf[sizeof hook_signature];	// Null-terminator is included
-	struct linux_dirent64 *dirent = NULL;
-
-	for ( ; ; ) {
-		ssize_t bytes_read = getdents64(hooks_directory_fd, dirents_buf, sizeof dirents_buf);
-		if (bytes_read < 0) {
-			fprintf(stderr, "Failed to retrieve directory entries\n");
-			exit(EXIT_FAILURE);
-		}
-		if (bytes_read == 0) {
-			break;
-		}
-
-		for (size_t buf_position = 0; buf_position < bytes_read; buf_position += dirent->d_reclen) {
-			dirent = (struct linux_dirent64 *) (dirents_buf + buf_position);
-			// Btrfs fully supports returning the file type (see getdents64(2))
-			if (dirent->d_type != DT_REG) {
-				continue;
-			}
-
-			// open the file for reading
-			int hook_fd = openat(hooks_directory_fd, dirent->d_name, O_RDONLY);
-			read(hook_fd, hook_buf, sizeof hook_buf - 1);
-			hook_buf[sizeof hook_buf - 1] = '\0';
-			close(hook_fd);
-
-			if (strncmp(hook_buf, hook_signature, sizeof hook_buf) != 0) {
-				continue;
-			}
-
-			// Long term we want to rename the existing hooks so that they can be
-			// restored if the current install fails.
-			unlinkat(hooks_directory_fd, dirent->d_name, 0);
-		}
-	}
-
-	for (size_t prof_i = 0; prof_i < ini.size_section; ++prof_i) {
-		uint8_t mask = 1;
-		struct profile profile = new_profiles[prof_i];
-		if (profile.trigger_type == 0) {
-			// This should never happen.
-			fprintf(stderr, "Trigger type cannot be 0\n");
-			exit(EXIT_FAILURE);
-		}
-
-		uint8_t trigger_flags = profile.trigger_type;
-		for ( ; ; ) {
-			if (trigger_flags == 0) {
-				break;
-			}
-
-			uint8_t trigger_bit = profile.trigger_type & mask;
-			mask <<= 1;
-			if (trigger_bit == 0) {
-				continue;
-			}
-
-			trigger_flags = trigger_flags & ~trigger_bit;
-			enum TriggerType trigger = (enum TriggerType) trigger_bit;
-
-			struct sub subs[3];
-
-			struct slice source = slice_from(profile.source);
-			subs[0] = (struct sub) {
-				.token = slice_from(source_token),
-				.replacement = source
-			};
-
-			struct slice mod_source = source;
-			bool source_path_is_terminated = source.start[source.size - 1] = '/';
-			if (source_path_is_terminated) {
-				// Remove the trailing '/' so that when we concatenate
-				// the destination we don't get a duplicate
-				mod_source.size -= 1;
-			}
-
-			size_t dest_size = mod_source.size + strlen(dest_suffix) + 1;
-			char *dest = malloc(dest_size);
-			char *end = mempcpy(dest, mod_source.start, mod_source.size);
-			memcpy(end, dest_suffix, strlen(dest_suffix));
-			subs[1] = (struct sub) {
-				.token = slice_from(destination_token),
-				.replacement = (struct slice) {
-					.start = dest,
-					.size = dest_size - 1
-				}
-			};
-
-			subs[2] = (struct sub) {
-				.token = slice_from(type_token),
-			};
-			switch (trigger) {
-			case PreInstall:
-				subs[2].replacement.start = "PreInstall";
-				break;
-			case PostInstall:
-				subs[2].replacement.start = "PostInstall";
-				break;
-			default:
-				fprintf(stderr, "Cannot process trigger type %d\n", trigger);
-				exit(EXIT_FAILURE);
-				break;
-			}
-			subs[2].replacement.size = strlen(subs[2].replacement.start);
-
-			// Path is relative to the hooks directory.
-			char *output_file_path = make_message("./50-%" PRIu64 "-%d.hook",
-					profile.fingerprint, trigger);
-			// Create the file with 0700 mode, if it doesn't already exist.
-			int output_fd = openat(hooks_directory_fd, output_file_path,
-					O_WRONLY | O_CREAT, S_IRWXU);
-			if (output_fd < 0) {
-				fprintf(stderr, "Failed to open %s\n", output_file_path);
-				perror("open");
-				exit(EXIT_FAILURE);
-			}
-			struct hook_ctx ctx = {
-				.fd_in = template_fd,
-				.fd_out = output_fd,
-				.in_size = template_file.st_size,
-				.in_consumed = 0,
-				.out_written = 0
-			};
-
-			process_stream(fill, flush, &ctx, subs, sizeof subs / sizeof *subs);
-
-			close(output_fd);
-			// We are re-using the template file so it must be reset.
-			lseek(template_fd, 0, SEEK_SET);
-		}
-	}
-
-	close(template_fd);
+	clear_existing_hooks(hooks_directory_fd);
+	write_new_hooks(hooks_directory_fd, new_profiles, ini.size_section);
 	close(hooks_directory_fd);
 }
 
@@ -403,6 +248,182 @@ struct profile * map_profiles(struct file_profile *file_profiles, size_t count)
 	free(hash_buf);
 
 	return profiles;
+}
+
+enum InstallerCode clear_existing_hooks(int hooks_directory_fd)
+{
+	char dirents_buf[1024 * 32],
+	     hook_buf[sizeof hook_signature];	// Null-terminator is included
+	struct linux_dirent64 *dirent = NULL;
+	for ( ; ; ) {
+		ssize_t bytes_read = getdents64(hooks_directory_fd, dirents_buf, sizeof dirents_buf);
+		if (bytes_read < 0) {
+			fprintf(stderr, "Failed to retrieve directory entries\n");
+			exit(EXIT_FAILURE);
+		}
+		if (bytes_read == 0) {
+			break;
+		}
+
+		for (size_t buf_position = 0; buf_position < bytes_read; buf_position += dirent->d_reclen) {
+			dirent = (struct linux_dirent64 *) (dirents_buf + buf_position);
+			// Btrfs fully supports returning the file type (see getdents64(2))
+			if (dirent->d_type != DT_REG) {
+				continue;
+			}
+
+			// open the file for reading
+			int hook_fd = openat(hooks_directory_fd, dirent->d_name, O_RDONLY);
+			read(hook_fd, hook_buf, sizeof hook_buf - 1);
+			hook_buf[sizeof hook_buf - 1] = '\0';
+			close(hook_fd);
+
+			if (strncmp(hook_buf, hook_signature, sizeof hook_buf) != 0) {
+				continue;
+			}
+
+			// Long term we want to rename the existing hooks so that they can be
+			// restored if the current install fails.
+			unlinkat(hooks_directory_fd, dirent->d_name, 0);
+		}
+	}
+
+	return PI_OK;
+}
+
+enum InstallerCode write_new_hooks(int hooks_directory_fd, struct profile *profiles, size_t profiles_size)
+{
+	struct stat template_file;
+	stat(input_hook_path, &template_file);
+	int template_fd = open(input_hook_path, O_RDONLY);
+	for (size_t prof_i = 0; prof_i < profiles_size; ++prof_i) {
+		uint8_t mask = 1;
+		struct profile profile = profiles[prof_i];
+		if (profile.trigger_type == 0) {
+			// This should never happen.
+			fprintf(stderr, "Trigger type cannot be 0\n");
+			exit(EXIT_FAILURE);
+		}
+
+		uint8_t trigger_flags = profile.trigger_type;
+		for ( ; ; ) {
+			if (trigger_flags == 0) {
+				break;
+			}
+
+			uint8_t trigger_bit = profile.trigger_type & mask;
+			mask <<= 1;
+			if (trigger_bit == 0) {
+				continue;
+			}
+
+			trigger_flags = trigger_flags & ~trigger_bit;
+			enum TriggerType trigger = (enum TriggerType) trigger_bit;
+
+			struct sub subs[3];
+
+			struct slice source = slice_from(profile.source);
+			subs[0] = (struct sub) {
+				.token = slice_from(source_token),
+				.replacement = source
+			};
+
+			struct slice mod_source = source;
+			bool source_path_is_terminated = source.start[source.size - 1] = '/';
+			if (source_path_is_terminated) {
+				// Remove the trailing '/' so that when we concatenate
+				// the destination we don't get a duplicate
+				mod_source.size -= 1;
+			}
+
+			size_t dest_size = mod_source.size + strlen(dest_suffix) + 1;
+			char *dest = malloc(dest_size);
+			char *end = mempcpy(dest, mod_source.start, mod_source.size);
+			memcpy(end, dest_suffix, strlen(dest_suffix));
+			subs[1] = (struct sub) {
+				.token = slice_from(destination_token),
+				.replacement = (struct slice) {
+					.start = dest,
+					.size = dest_size - 1
+				}
+			};
+
+			subs[2] = (struct sub) {
+				.token = slice_from(type_token),
+			};
+			switch (trigger) {
+			case PreInstall:
+				subs[2].replacement.start = "PreInstall";
+				break;
+			case PostInstall:
+				subs[2].replacement.start = "PostInstall";
+				break;
+			default:
+				fprintf(stderr, "Cannot process trigger type %d\n", trigger);
+				exit(EXIT_FAILURE);
+				break;
+			}
+			subs[2].replacement.size = strlen(subs[2].replacement.start);
+
+			// Path is relative to the hooks directory.
+			char *output_file_path = make_message("./50-%" PRIu64 "-%d.hook",
+					profile.fingerprint, trigger);
+			// Create the file with 0700 mode, if it doesn't already exist.
+			int output_fd = openat(hooks_directory_fd, output_file_path,
+					O_WRONLY | O_CREAT, S_IRWXU);
+			if (output_fd < 0) {
+				fprintf(stderr, "Failed to open %s\n", output_file_path);
+				perror("open");
+				exit(EXIT_FAILURE);
+			}
+			struct hook_ctx ctx = {
+				.fd_in = template_fd,
+				.fd_out = output_fd,
+				.in_size = template_file.st_size,
+				.in_consumed = 0,
+				.out_written = 0
+			};
+
+			process_stream(fill, flush, &ctx, subs, sizeof subs / sizeof *subs);
+
+			close(output_fd);
+			// We are re-using the template file so it must be reset.
+			lseek(template_fd, 0, SEEK_SET);
+		}
+	}
+	close(template_fd);
+
+	return PI_OK;
+}
+
+static enum InstallerCode fill(void *ctx, char *buf, size_t buf_size, size_t *consumed)
+{
+    struct hook_ctx *hook_ctx = ctx;
+    size_t remaining = hook_ctx->in_size - hook_ctx->in_consumed,
+	   wanted = remaining < buf_size ? remaining : buf_size;
+    size_t bytes_read = read(hook_ctx->fd_in, buf, wanted);
+    if (bytes_read <= 0) {
+	    return PI_READ_FAIL;
+    }
+
+    *consumed = bytes_read;
+    hook_ctx->in_consumed += *consumed;
+
+    return PI_OK;
+}
+
+static enum InstallerCode flush(void *ctx, char *buf, size_t buf_size, size_t *written)
+{
+    struct hook_ctx *hook_ctx = ctx;
+    size_t bytes_written = write(hook_ctx->fd_out, buf, buf_size);
+    if (bytes_written < 0) {
+	    return PI_WRITE_FAIL;
+    }
+
+    *written = bytes_written;
+    hook_ctx->out_written += buf_size;
+
+    return PI_OK;
 }
 
 struct slice slice_from(char *s)
