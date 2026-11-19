@@ -615,8 +615,8 @@ int main(void)
 	//RUN_TEST(test_it_can_process_a_large_number_of_sections);
 	//RUN_TEST(test_it_can_process_a_large_number_of_attributes);
 
-	//RUN_TEST(test_it_passes_through_tokens_without_a_template);
-	//RUN_TEST(test_it_substitutes_a_template_token_within_a_stream);
+	RUN_TEST(test_it_passes_through_tokens_without_a_template);
+	RUN_TEST(test_it_substitutes_a_template_token_within_a_stream);
 	RUN_TEST(it_reads_text_across_multiple_input_buffer_fills);
 
 	//RUN_TEST(test_it_returns_a_simple_token_in_full);

@@ -486,44 +486,53 @@ enum InstallerCode process_stream_sized(
 	size_t remaining	= 0,
 	       buffered		= 0,
 	       written		= 0;
-	char *in_ptr = in,
-	     *out_ptr = out;
+	char *out_ptr = out;
 
-	(*fill)(ctx, in, in_size, &remaining);
 	for ( ; ; ) {
+		char *in_ptr = in;
+
+		// The outer loop is responsible for continually fililng the nput buffer.
+		(*fill)(ctx, in, in_size, &remaining);
 		if (remaining <= 0) {
 			break;
 		}
 
-		struct sub_token in_token = next_token(in_ptr, remaining);
-		struct slice out_token = {
-			.start = in_token.token.start,
-			.size = in_token.token.size
-		};
-
-		if (in_token.is_replacement) {
-			// Strip the `{{` and `}}` surrounding the token contents.
-			out_token.start += 2;
-			out_token.size -= 4;
-			out_token = trim(out_token);
-
-			for (size_t sub_i = 0; sub_i < subs_size; ++sub_i) {
-				if (strncmp(subs[sub_i].token.start,
-							out_token.start,
-							out_token.size) != 0) {
-					continue;
-				}
-				out_token = subs[sub_i].replacement;
+		for ( ; ; ) {
+			// The inner loop processes tokens from the inner buffer.
+			if (remaining <= 0) {
+				break;
 			}
+
+			struct sub_token in_token = next_token(in_ptr, remaining);
+			struct slice out_token = {
+				.start = in_token.token.start,
+				.size = in_token.token.size
+			};
+
+			if (in_token.is_replacement) {
+				// Strip the `{{` and `}}` surrounding the token contents.
+				out_token.start += 2;
+				out_token.size -= 4;
+				out_token = trim(out_token);
+
+				for (size_t sub_i = 0; sub_i < subs_size; ++sub_i) {
+					if (strncmp(subs[sub_i].token.start,
+								out_token.start,
+								out_token.size) != 0) {
+						continue;
+					}
+					out_token = subs[sub_i].replacement;
+				}
+			}
+
+			remaining -= in_token.token.size;
+			in_ptr += in_token.token.size;
+
+			memcpy(out_ptr, out_token.start, out_token.size);
+
+			buffered += out_token.size;
+			out_ptr += out_token.size;
 		}
-
-		remaining -= in_token.token.size;
-		in_ptr += in_token.token.size;
-
-		memcpy(out_ptr, out_token.start, out_token.size);
-
-		buffered += out_token.size;
-		out_ptr += out_token.size;
 	}
 	(*flush)(ctx, out, buffered, &written);
 
