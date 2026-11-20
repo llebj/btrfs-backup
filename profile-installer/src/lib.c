@@ -525,15 +525,41 @@ enum InstallerCode process_stream_sized(
 				}
 			}
 
+			for ( ; ; ) {
+				// The inner most loop is responsible for filling the output buffer
+				// and flushing when necessary. It can flush many times if the output
+				// token is significantly larger than the output buffer.
+				if (buffered + out_token.size > out_size) {
+					memcpy(out_ptr, out_token.start, out_size);
+
+					buffered += out_size;
+					out_token.start += out_size;
+					out_token.size -= out_size;
+
+					(*flush)(ctx, out, buffered, &written);
+
+					buffered = 0;
+					out_ptr = out;
+				}
+				else {
+					memcpy(out_ptr, out_token.start, out_token.size);
+
+					buffered += out_token.size;
+					out_ptr += out_token.size;
+					out_token.start += out_token.size;
+					out_token.size = 0;
+				}
+
+				if (out_token.size == 0) {
+					break;
+				}
+			}
+
 			remaining -= in_token.token.size;
 			in_ptr += in_token.token.size;
-
-			memcpy(out_ptr, out_token.start, out_token.size);
-
-			buffered += out_token.size;
-			out_ptr += out_token.size;
 		}
 	}
+
 	(*flush)(ctx, out, buffered, &written);
 
 	return PI_OK;
