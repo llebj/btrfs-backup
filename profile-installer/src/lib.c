@@ -485,14 +485,18 @@ enum InstallerCode process_stream_sized(
 
 	size_t remaining	= 0,
 	       buffered		= 0,
-	       written		= 0;
+	       written		= 0,
+	       prefilled	= 0;	// The number of bytes in the input buffer that are already filled
 	char *out_ptr = out;
 
 	for ( ; ; ) {
+		// WARN: What if `prefilled > in_size`?
 		char *in_ptr = in;
-
 		// The outer loop is responsible for continually fililng the nput buffer.
-		(*fill)(ctx, in, in_size, &remaining);
+		(*fill)(ctx, in + prefilled, in_size - prefilled, &remaining);
+		remaining += prefilled;
+		prefilled = 0;	// We have refilled so we are not carrying any bytes over.
+
 		if (remaining <= 0) {
 			break;
 		}
@@ -523,6 +527,14 @@ enum InstallerCode process_stream_sized(
 					}
 					out_token = subs[sub_i].replacement;
 				}
+			}
+			else if (in_token.token.size == 0 && in_token.token.start == NULL) {
+				// An empty token means an incomplete substitution token
+				// therefore we move to the start and re-fill the buffer
+				// in an attempt to read the rest of the template.
+				memmove(in, in + in_size - remaining, remaining);
+				prefilled = remaining;
+				break;
 			}
 
 			for ( ; ; ) {
