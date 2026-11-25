@@ -528,10 +528,13 @@ enum InstallerCode process_stream_sized(
 					out_token = subs[sub_i].replacement;
 				}
 			}
-			else if (in_token.token.size == 0 && in_token.token.start == NULL) {
+			else if ((in_token.token.size == 0 && in_token.token.start == NULL)
+					|| (in_token.token.size == 1 && in_token.token.start[0] == '{')) {
 				// An empty token means an incomplete substitution token
 				// therefore we move to the start and re-fill the buffer
 				// in an attempt to read the rest of the template.
+				//
+				// We need to do the same following an ambiguous final brace.
 				memmove(in, in + in_size - remaining, remaining);
 				prefilled = remaining;
 				break;
@@ -619,15 +622,23 @@ struct sub_token next_token(char *in, size_t size)
 			.size = 0
 		}
 	};
+	// TODO: The comments need to be refined for this section; it isn't
+	//       immediately clear what each of these cases means.
 	if (state.current == Closed) {
 		// Terminated on the second '}', which must be included
 		result.token.size = i + 1;
 		result.is_replacement = true;
 	}
-	else if (state.current == Open && !is_sub_token || state.current == Opening) {
+	else if (state.current == Open && !is_sub_token) {
 		// Needed to look ahead to find the second '{', or read an
 		// ambiguous '{' as the final character in the buffer
 		result.token.size = i - 1;
+	}
+	else if (state.current == Opening) {
+		// Opening with a size of 1 indicates that this was an
+		// ambiguous final brace in the buffer. We need to return
+		// the actual size.
+		result.token.size = size == 1 ? i : i - 1;
 	}
 	else {
 		// Read to the end of the buffer

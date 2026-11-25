@@ -487,6 +487,20 @@ void test_it_does_not_include_an_ambibuous_single_brace(void)
 	TEST_ASSERT_EQUAL_MEMORY(expected, result.token.start, result.token.size);
 }
 
+void test_it_handles_an_ambibuous_single_brace(void)
+{
+	// Arrange
+	char *expected = "{";
+	size_t len = strlen(expected);
+
+	// Act
+	struct sub_token result = next_token(expected, len);
+
+	// Assert
+	TEST_ASSERT_EQUAL_INT(len, result.token.size);
+	TEST_ASSERT_EQUAL_MEMORY(expected, result.token.start, result.token.size);
+}
+
 void test_it_returns_an_empty_token_for_an_incomplete_template_token(void)
 {
 	// Arrange
@@ -685,8 +699,47 @@ void it_performs_a_substitution_that_spans_a_buffer_flush(void)
 	TEST_ASSERT_EQUAL_MEMORY(expected, out, ctx.out_written);
 }
 
+void it_performs_a_substitution_that_include_an_ambiguous_final_brace(void)
+{
+	// Arrange
+	const char first[]		= "Hello, padding ",
+	           token[]		= "{{ Token }}",
+		   replacement[]	= "world";
+
+	// `sizeof` includes the null-terminator. Since we have two strings, and we
+	// only require a single terminator, we subtract 1 from the total.
+	char in[sizeof first + sizeof token - 1]		= {0},
+	     out[sizeof first + sizeof replacement - 1]		= {0},
+	     expected[sizeof first + sizeof replacement - 1]	= {0};
+
+	snprintf(in, sizeof in, "%s%s", first, token);
+	snprintf(expected, sizeof expected, "%s%s", first, replacement);
+
+	struct sub subs[1] = {0};
+	subs[0] = (struct sub) {
+		.token = slice_from("Token"),
+		.replacement = slice_from("world")
+	};
+	struct fake ctx = {
+		.in = in,
+		.in_size = sizeof in - 1,
+		.out = out,
+		.out_size = sizeof out - 1
+	};
+
+	// Act
+	// The buffer must be sufficiently large to contain the entire complete template token.
+	enum InstallerCode result = process_stream_sized(
+			&fake_fill, &fake_flush, &ctx, subs, sizeof subs / sizeof *subs, 16, 32);
+
+	// Assert
+	TEST_ASSERT_EQUAL_INT(PI_OK, result);
+
+	TEST_ASSERT_EQUAL_size_t(sizeof expected - 1, ctx.out_written);
+	TEST_ASSERT_EQUAL_MEMORY(expected, out, ctx.out_written);
+}
+
 // TODO: Test cases for the following scenarios:
-// * ambiguous final brace
 // * all the stuff that can go wrong (input validation, etc...)
 // * input sub token that doesn't fit in the buffer
 // * output sub token that doesn't fit in the buffer
@@ -720,13 +773,15 @@ int main(void)
 	RUN_TEST(it_writes_text_across_multiple_output_buffer_flushes);
 	RUN_TEST(it_performs_a_substitution_that_spans_a_buffer_fill);
 	RUN_TEST(it_performs_a_substitution_that_spans_a_buffer_flush);
+	RUN_TEST(it_performs_a_substitution_that_include_an_ambiguous_final_brace);
 
-	//RUN_TEST(test_it_returns_a_simple_token_in_full);
-	//RUN_TEST(test_it_extracts_a_simple_token_from_a_multi_type_string);
-	//RUN_TEST(test_it_extracts_a_template_token_from_a_multi_type_string);
-	//RUN_TEST(test_it_treats_single_braces_literally);
-	//RUN_TEST(test_it_does_not_include_an_ambibuous_single_brace);
-	//RUN_TEST(test_it_returns_an_empty_token_for_an_incomplete_template_token);
+	RUN_TEST(test_it_returns_a_simple_token_in_full);
+	RUN_TEST(test_it_extracts_a_simple_token_from_a_multi_type_string);
+	RUN_TEST(test_it_extracts_a_template_token_from_a_multi_type_string);
+	RUN_TEST(test_it_treats_single_braces_literally);
+	RUN_TEST(test_it_does_not_include_an_ambibuous_single_brace);
+	RUN_TEST(test_it_handles_an_ambibuous_single_brace);
+	RUN_TEST(test_it_returns_an_empty_token_for_an_incomplete_template_token);
 
 	return UNITY_END();
 }
