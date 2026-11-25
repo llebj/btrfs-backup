@@ -542,11 +542,13 @@ enum InstallerCode process_stream_sized(
 				// and flushing when necessary. It can flush many times if the output
 				// token is significantly larger than the output buffer.
 				if (buffered + out_token.size > out_size) {
-					memcpy(out_ptr, out_token.start, out_size);
+					size_t space = out_size - buffered;
 
-					buffered += out_size;
-					out_token.start += out_size;
-					out_token.size -= out_size;
+					memcpy(out_ptr, out_token.start, space);
+
+					buffered += space;
+					out_token.start += space;
+					out_token.size -= space;
 
 					(*flush)(ctx, out, buffered, &written);
 
