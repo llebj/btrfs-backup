@@ -483,6 +483,7 @@ enum InstallerCode process_stream_sized(
 		return PI_ALLOC_FAIL;
 	}
 
+	enum InstallerCode result = PI_OK;
 	size_t remaining	= 0,
 	       buffered		= 0,
 	       written		= 0,
@@ -528,12 +529,22 @@ enum InstallerCode process_stream_sized(
 					out_token = subs[sub_i].replacement;
 				}
 			}
-			else if ((in_token.token.size == 0 && in_token.token.start == NULL)
-					|| (in_token.token.size == 1 && in_token.token.start[0] == '{')) {
+			else if (in_token.token.size == 0 && in_token.token.start == NULL) {
+				if (remaining == in_size) {
+					// An empty token returned for a full buffer indicates
+					// a template token that overflows the buffer. We can't
+					// handle this case.
+					result = PI_PARSE_FAIL;
+					break;
+				}
 				// An empty token means an incomplete substitution token
 				// therefore we move to the start and re-fill the buffer
 				// in an attempt to read the rest of the template.
-				//
+				memmove(in, in + in_size - remaining, remaining);
+				prefilled = remaining;
+				break;
+			}
+			else if (in_token.token.size == 1 && in_token.token.start[0] == '{') {
 				// We need to do the same following an ambiguous final brace.
 				memmove(in, in + in_size - remaining, remaining);
 				prefilled = remaining;
@@ -575,11 +586,15 @@ enum InstallerCode process_stream_sized(
 			remaining -= in_token.token.size;
 			in_ptr += in_token.token.size;
 		}
+
+		if (result != PI_OK) {
+			break;
+		}
 	}
 
 	(*flush)(ctx, out, buffered, &written);
 
-	return PI_OK;
+	return result;
 }
 
 struct sub_token next_token(char *in, size_t size)
