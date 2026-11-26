@@ -490,10 +490,11 @@ enum InstallerCode process_stream_sized(
 	       prefilled	= 0;	// The number of bytes in the input buffer that are already filled
 	char *out_ptr = out;
 
+	// The outer loop is responsible for continually fililng the input buffer.
 	for ( ; ; ) {
 		// WARN: What if `prefilled > in_size`?
 		char *in_ptr = in;
-		// The outer loop is responsible for continually fililng the nput buffer.
+		// WARN: What if the fill fails?
 		(*fill)(ctx, in + prefilled, in_size - prefilled, &remaining);
 		remaining += prefilled;
 		prefilled = 0;	// We have refilled so we are not carrying any bytes over.
@@ -502,8 +503,8 @@ enum InstallerCode process_stream_sized(
 			break;
 		}
 
+		// The inner loop consumes tokens from the input buffer.
 		for ( ; ; ) {
-			// The inner loop processes tokens from the inner buffer.
 			if (remaining <= 0) {
 				break;
 			}
@@ -521,6 +522,9 @@ enum InstallerCode process_stream_sized(
 				out_token = trim(out_token);
 
 				for (size_t sub_i = 0; sub_i < subs_size; ++sub_i) {
+					// WARN: What if `subs` is null?
+					// WARN: What if `subs` is empty?
+					// WARN: What if a match cannot be found?
 					if (strncmp(subs[sub_i].token.start,
 								out_token.start,
 								out_token.size) != 0) {
@@ -551,10 +555,10 @@ enum InstallerCode process_stream_sized(
 				break;
 			}
 
+			// The inner most loop is responsible for filling the output buffer
+			// and flushing when necessary. It can flush many times if the output
+			// token is significantly larger than the output buffer.
 			for ( ; ; ) {
-				// The inner most loop is responsible for filling the output buffer
-				// and flushing when necessary. It can flush many times if the output
-				// token is significantly larger than the output buffer.
 				if (buffered + out_token.size > out_size) {
 					size_t space = out_size - buffered;
 
@@ -564,6 +568,7 @@ enum InstallerCode process_stream_sized(
 					out_token.start += space;
 					out_token.size -= space;
 
+					// WARN: What if the flush fails?
 					(*flush)(ctx, out, buffered, &written);
 
 					buffered = 0;
@@ -578,6 +583,9 @@ enum InstallerCode process_stream_sized(
 					out_token.size = 0;
 				}
 
+				// Modifying `out_token` feels a bit smelly, but it
+				// will do for now.
+				// TODO: Find a nicer solution than modifying `out_token`.
 				if (out_token.size == 0) {
 					break;
 				}
@@ -592,6 +600,7 @@ enum InstallerCode process_stream_sized(
 		}
 	}
 
+	// WARN: What if the flush fails?
 	(*flush)(ctx, out, buffered, &written);
 
 	return result;
