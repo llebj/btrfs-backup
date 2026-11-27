@@ -480,6 +480,8 @@ enum InstallerCode process_stream_sized(
 		return PI_ALLOC_FAIL;
 	}
 	if ((out = malloc(out_size)) == NULL) {
+		free(in);
+
 		return PI_ALLOC_FAIL;
 	}
 
@@ -616,6 +618,9 @@ enum InstallerCode process_stream_sized(
 
 	// WARN: What if the flush fails?
 	(*flush)(ctx, out, buffered, &written);
+
+	free(in);
+	free(out);
 
 	return result;
 }
