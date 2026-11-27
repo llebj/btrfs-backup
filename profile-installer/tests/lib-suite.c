@@ -577,6 +577,74 @@ void test_it_substitutes_a_template_token_within_a_stream(void)
 	TEST_ASSERT_EQUAL_MEMORY(expected, out, ctx.out_written);
 }
 
+void test_it_returns_an_error_if_a_template_has_no_substitution(void)
+{
+	// Arrange
+	const char first[]		= "Hello, ",
+	           token[]		= "{{ Token }}";
+
+	// `sizeof` includes the null-terminator. Since we have two strings, and we
+	// only require a single terminator, we subtract 1 from the total.
+	char in[sizeof first + sizeof token - 1]		= {0},
+	     out[sizeof first + sizeof token - 1]		= {0};
+
+	snprintf(in, sizeof in, "%s%s", first, token);
+
+	struct sub subs[0];
+	struct fake ctx = {
+		.in = in,
+		.in_size = sizeof in - 1,
+		.out = out,
+		.out_size = sizeof out - 1
+	};
+
+	// Act
+	enum InstallerCode result = process_stream_sized(
+			&fake_fill, &fake_flush, &ctx, subs, sizeof subs / sizeof *subs, 32, 32);
+
+	// Assert
+	TEST_ASSERT_EQUAL_INT(PI_FAIL, result);
+
+	TEST_ASSERT_EQUAL_size_t(sizeof first - 1, ctx.out_written);
+	TEST_ASSERT_EQUAL_MEMORY(first, out, ctx.out_written);
+}
+
+void test_it_returns_an_error_for_an_incomplete_prefix_match(void)
+{
+	// Arrange
+	const char first[]		= "Hello, ",
+	           token[]		= "{{ Tok }}";
+
+	// `sizeof` includes the null-terminator. Since we have two strings, and we
+	// only require a single terminator, we subtract 1 from the total.
+	char in[sizeof first + sizeof token - 1]		= {0},
+	     out[sizeof first + sizeof token - 1]		= {0};
+
+	snprintf(in, sizeof in, "%s%s", first, token);
+
+	struct sub subs[1] = {0};
+	subs[0] = (struct sub) {
+		.token = slice_from("Token"),
+		.replacement = slice_from("world")
+	};
+	struct fake ctx = {
+		.in = in,
+		.in_size = sizeof in - 1,
+		.out = out,
+		.out_size = sizeof out - 1
+	};
+
+	// Act
+	enum InstallerCode result = process_stream_sized(
+			&fake_fill, &fake_flush, &ctx, subs, sizeof subs / sizeof *subs, 32, 32);
+
+	// Assert
+	TEST_ASSERT_EQUAL_INT(PI_FAIL, result);
+
+	TEST_ASSERT_EQUAL_size_t(sizeof first - 1, ctx.out_written);
+	TEST_ASSERT_EQUAL_MEMORY(first, out, ctx.out_written);
+}
+
 void test_it_reads_text_across_multiple_input_buffer_fills(void)
 {
 	// Arrange
@@ -849,6 +917,8 @@ int main(void)
 
 	RUN_TEST(test_it_passes_through_tokens_without_a_template);
 	RUN_TEST(test_it_substitutes_a_template_token_within_a_stream);
+	RUN_TEST(test_it_returns_an_error_if_a_template_has_no_substitution);
+	RUN_TEST(test_it_returns_an_error_for_an_incomplete_prefix_match);
 	RUN_TEST(test_it_reads_text_across_multiple_input_buffer_fills);
 	RUN_TEST(test_it_writes_text_across_multiple_output_buffer_flushes);
 	RUN_TEST(test_it_performs_a_substitution_that_spans_a_buffer_fill);

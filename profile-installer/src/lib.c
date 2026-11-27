@@ -517,21 +517,31 @@ enum InstallerCode process_stream_sized(
 			};
 
 			if (in_token.is_replacement) {
+				bool found_replacement = false;
+
 				// Strip the `{{` and `}}` surrounding the token contents.
 				out_token.start += 2;
 				out_token.size -= 4;
 				out_token = trim(out_token);
 
 				for (size_t sub_i = 0; sub_i < subs_size; ++sub_i) {
+					struct sub current_sub = subs[sub_i];
 					// WARN: What if `subs` is null?
-					// WARN: What if `subs` is empty?
-					// WARN: What if a match cannot be found?
-					if (strncmp(subs[sub_i].token.start,
+					if (current_sub.token.size != out_token.size
+							|| strncmp(
+								current_sub.token.start,
 								out_token.start,
 								out_token.size) != 0) {
 						continue;
 					}
 					out_token = subs[sub_i].replacement;
+					found_replacement = true;
+					break;
+				}
+
+				if (!found_replacement) {
+					result = PI_FAIL;
+					break;
 				}
 			}
 			else if (in_token.token.size == 0 && in_token.token.start == NULL) {
