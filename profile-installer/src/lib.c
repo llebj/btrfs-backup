@@ -502,13 +502,13 @@ enum InstallerCode process_stream_sized(
 		size_t remaining = read + prefilled;
 		prefilled = 0;	// We have refilled so we are not carrying any bytes over.
 
-		if (remaining <= 0) {
+		if (remaining == 0) {
 			break;
 		}
 
 		// The inner loop consumes tokens from the input buffer.
 		for ( ; ; ) {
-			if (remaining <= 0) {
+			if (remaining == 0) {
 				break;
 			}
 
