@@ -329,7 +329,7 @@ enum InstallerCode write_new_hooks(int hooks_directory_fd, struct profile *profi
 			};
 
 			struct slice mod_source = source;
-			bool source_path_is_terminated = source.start[source.size - 1] = '/';
+			bool source_path_is_terminated = source.start[source.size - 1] == '/';
 			if (source_path_is_terminated) {
 				// Remove the trailing '/' so that when we concatenate
 				// the destination we don't get a duplicate
@@ -398,32 +398,50 @@ enum InstallerCode write_new_hooks(int hooks_directory_fd, struct profile *profi
 
 static enum InstallerCode fill(void *ctx, char *buf, size_t buf_size, size_t *consumed)
 {
-    struct hook_ctx *hook_ctx = ctx;
-    size_t remaining = hook_ctx->in_size - hook_ctx->in_consumed,
-	   wanted = remaining < buf_size ? remaining : buf_size;
-    size_t bytes_read = read(hook_ctx->fd_in, buf, wanted);
-    if (bytes_read <= 0) {
-	    return PI_READ_FAIL;
-    }
+	*consumed = 0;
+	struct hook_ctx *hook_ctx = ctx;
+	size_t remaining = hook_ctx->in_size - hook_ctx->in_consumed,
+	       wanted = remaining < buf_size ? remaining : buf_size;
 
-    *consumed = bytes_read;
-    hook_ctx->in_consumed += *consumed;
+	ssize_t bytes_read = read(hook_ctx->fd_in, buf, wanted);
+	if (bytes_read < 0) {
+		return PI_READ_FAIL;
+	}
 
-    return PI_OK;
+	*consumed = bytes_read;
+	hook_ctx->in_consumed += *consumed;
+
+	return PI_OK;
 }
 
 static enum InstallerCode flush(void *ctx, char *buf, size_t buf_size, size_t *written)
 {
-    struct hook_ctx *hook_ctx = ctx;
-    size_t bytes_written = write(hook_ctx->fd_out, buf, buf_size);
-    if (bytes_written < 0) {
-	    return PI_WRITE_FAIL;
-    }
+	*written = 0;
+	struct hook_ctx *hook_ctx = ctx;
+	size_t remaining = buf_size;
+	char *buf_ptr = buf;
 
-    *written = bytes_written;
-    hook_ctx->out_written += buf_size;
+	for ( ; ; ) {
+		if (remaining == 0) {
+			break;
+		}
 
-    return PI_OK;
+		ssize_t bytes_written = write(hook_ctx->fd_out, buf_ptr, remaining);
+		if (bytes_written <= 0) {
+			// We also return failure for 0 because we never request
+			// 0 bytes to be written; if we receive 0, then we cannot
+			// recover and must return a failure.
+			return PI_WRITE_FAIL;
+		}
+
+		*written += bytes_written;
+		hook_ctx->out_written += bytes_written;
+
+		buf_ptr += bytes_written;
+		remaining -= bytes_written;
+	}
+
+	return PI_OK;
 }
 
 struct slice slice_from(char *s)
