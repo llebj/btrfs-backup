@@ -528,9 +528,8 @@ enum InstallerCode process_stream_sized(
 
 				for (size_t sub_i = 0; sub_i < subs_size; ++sub_i) {
 					struct sub current_sub = subs[sub_i];
-					// WARN: What if `subs` is null?
 					if (current_sub.token.size != out_token.size
-							|| strncmp(
+							|| memcmp(
 								current_sub.token.start,
 								out_token.start,
 								out_token.size) != 0) {
@@ -542,7 +541,7 @@ enum InstallerCode process_stream_sized(
 				}
 
 				if (!found_replacement) {
-					result = PI_FAIL;
+					result = PI_PARSE_FAIL;
 					break;
 				}
 			}

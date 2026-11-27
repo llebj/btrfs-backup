@@ -603,7 +603,7 @@ void test_it_returns_an_error_if_a_template_has_no_substitution(void)
 			&fake_fill, &fake_flush, &ctx, subs, sizeof subs / sizeof *subs, 32, 32);
 
 	// Assert
-	TEST_ASSERT_EQUAL_INT(PI_FAIL, result);
+	TEST_ASSERT_EQUAL_INT(PI_PARSE_FAIL, result);
 
 	TEST_ASSERT_EQUAL_size_t(sizeof first - 1, ctx.out_written);
 	TEST_ASSERT_EQUAL_MEMORY(first, out, ctx.out_written);
@@ -639,7 +639,7 @@ void test_it_returns_an_error_for_an_incomplete_prefix_match(void)
 			&fake_fill, &fake_flush, &ctx, subs, sizeof subs / sizeof *subs, 32, 32);
 
 	// Assert
-	TEST_ASSERT_EQUAL_INT(PI_FAIL, result);
+	TEST_ASSERT_EQUAL_INT(PI_PARSE_FAIL, result);
 
 	TEST_ASSERT_EQUAL_size_t(sizeof first - 1, ctx.out_written);
 	TEST_ASSERT_EQUAL_MEMORY(first, out, ctx.out_written);
@@ -901,19 +901,19 @@ int main(void)
 {
 	UNITY_BEGIN();
 
-	//RUN_TEST(test_it_correctly_hashes_a_basic_string);
+	RUN_TEST(test_it_correctly_hashes_a_basic_string);
 
-	//RUN_TEST(test_it_parses_a_section_with_multiple_attributes);
-	//RUN_TEST(test_it_parses_multiple_sections);
-	//RUN_TEST(test_it_parses_a_header_with_a_tag);
-	//RUN_TEST(test_it_requires_a_header);
-	//RUN_TEST(test_it_does_not_allow_empty_header);
-	//RUN_TEST(test_it_does_not_allow_empty_tag);
-	//RUN_TEST(test_it_does_not_allow_empty_key);
-	//RUN_TEST(test_it_does_not_allow_empty_value);
-	//RUN_TEST(test_it_requires_a_properly_terminated_file);
-	//RUN_TEST(test_it_can_process_a_large_number_of_sections);
-	//RUN_TEST(test_it_can_process_a_large_number_of_attributes);
+	RUN_TEST(test_it_parses_a_section_with_multiple_attributes);
+	RUN_TEST(test_it_parses_multiple_sections);
+	RUN_TEST(test_it_parses_a_header_with_a_tag);
+	RUN_TEST(test_it_requires_a_header);
+	RUN_TEST(test_it_does_not_allow_empty_header);
+	RUN_TEST(test_it_does_not_allow_empty_tag);
+	RUN_TEST(test_it_does_not_allow_empty_key);
+	RUN_TEST(test_it_does_not_allow_empty_value);
+	RUN_TEST(test_it_requires_a_properly_terminated_file);
+	RUN_TEST(test_it_can_process_a_large_number_of_sections);
+	RUN_TEST(test_it_can_process_a_large_number_of_attributes);
 
 	RUN_TEST(test_it_passes_through_tokens_without_a_template);
 	RUN_TEST(test_it_substitutes_a_template_token_within_a_stream);
@@ -928,13 +928,13 @@ int main(void)
 	RUN_TEST(test_it_handles_a_stream_ending_within_a_partial_template_token);
 	RUN_TEST(test_it_handles_a_stream_ending_with_a_literal_brace);
 
-	//RUN_TEST(test_it_returns_a_simple_token_in_full);
-	//RUN_TEST(test_it_extracts_a_simple_token_from_a_multi_type_string);
-	//RUN_TEST(test_it_extracts_a_template_token_from_a_multi_type_string);
-	//RUN_TEST(test_it_treats_single_braces_literally);
-	//RUN_TEST(test_it_does_not_include_an_ambibuous_single_brace);
-	//RUN_TEST(test_it_handles_an_ambibuous_single_brace);
-	//RUN_TEST(test_it_returns_an_empty_token_for_an_incomplete_template_token);
+	RUN_TEST(test_it_returns_a_simple_token_in_full);
+	RUN_TEST(test_it_extracts_a_simple_token_from_a_multi_type_string);
+	RUN_TEST(test_it_extracts_a_template_token_from_a_multi_type_string);
+	RUN_TEST(test_it_treats_single_braces_literally);
+	RUN_TEST(test_it_does_not_include_an_ambibuous_single_brace);
+	RUN_TEST(test_it_handles_an_ambibuous_single_brace);
+	RUN_TEST(test_it_returns_an_empty_token_for_an_incomplete_template_token);
 
 	return UNITY_END();
 }
