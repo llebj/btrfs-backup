@@ -1,5 +1,6 @@
 CC := clang
 # Build an executable suitable for debugging.
+# TODO: Add sanitizer flags
 CFLAGS := -O0 -g
 
 BUILD_DIR := build

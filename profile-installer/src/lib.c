@@ -518,6 +518,9 @@ enum InstallerCode process_stream_sized(
 				.size = in_token.token.size
 			};
 
+			// This if-else block is an annoying source of complexity and the
+			// cases are tricky to reason about:
+			// TODO: Design a better solution for handling tokens
 			if (in_token.is_replacement) {
 				bool found_replacement = false;
 
