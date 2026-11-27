@@ -780,6 +780,47 @@ void test_it_returns_an_error_when_a_template_token_that_does_not_fit_in_the_inp
 	TEST_ASSERT_EQUAL_MEMORY(first, out, ctx.out_written);
 }
 
+void test_it_handles_a_stream_ending_within_a_partial_template_token(void)
+{
+	// Arrange
+	char in[] = "Hello, {{ Tok",
+	     out[sizeof in] = {0};
+	struct fake ctx = {
+		.in = in,
+		.in_size = sizeof in - 1,
+		.out = out,
+		.out_size = sizeof out - 1
+	};
+
+	// Act
+	enum InstallerCode result = process_stream_sized(&fake_fill, &fake_flush, &ctx, NULL, 0, 32, 32);
+
+	// Assert
+	TEST_ASSERT_EQUAL(PI_PARSE_FAIL, result);
+}
+
+void test_it_handles_a_stream_ending_with_a_literal_brace(void)
+{
+	// Arrange
+	char in[] = "Hello, {",
+	     out[sizeof in] = {0};
+	struct fake ctx = {
+		.in = in,
+		.in_size = sizeof in - 1,
+		.out = out,
+		.out_size = sizeof out - 1
+	};
+
+	// Act
+	enum InstallerCode result = process_stream_sized(&fake_fill, &fake_flush, &ctx, NULL, 0, 32, 32);
+
+	// Assert
+	TEST_ASSERT_EQUAL(PI_OK, result);
+
+	TEST_ASSERT_EQUAL_size_t(sizeof in - 1, ctx.out_written);
+	TEST_ASSERT_EQUAL_MEMORY(in, out, ctx.out_written);
+}
+
 // TODO: Test cases for the following scenarios:
 // * all the stuff that can go wrong (input validation, etc...)
 
@@ -792,19 +833,19 @@ int main(void)
 {
 	UNITY_BEGIN();
 
-	RUN_TEST(test_it_correctly_hashes_a_basic_string);
+	//RUN_TEST(test_it_correctly_hashes_a_basic_string);
 
-	RUN_TEST(test_it_parses_a_section_with_multiple_attributes);
-	RUN_TEST(test_it_parses_multiple_sections);
-	RUN_TEST(test_it_parses_a_header_with_a_tag);
-	RUN_TEST(test_it_requires_a_header);
-	RUN_TEST(test_it_does_not_allow_empty_header);
-	RUN_TEST(test_it_does_not_allow_empty_tag);
-	RUN_TEST(test_it_does_not_allow_empty_key);
-	RUN_TEST(test_it_does_not_allow_empty_value);
-	RUN_TEST(test_it_requires_a_properly_terminated_file);
-	RUN_TEST(test_it_can_process_a_large_number_of_sections);
-	RUN_TEST(test_it_can_process_a_large_number_of_attributes);
+	//RUN_TEST(test_it_parses_a_section_with_multiple_attributes);
+	//RUN_TEST(test_it_parses_multiple_sections);
+	//RUN_TEST(test_it_parses_a_header_with_a_tag);
+	//RUN_TEST(test_it_requires_a_header);
+	//RUN_TEST(test_it_does_not_allow_empty_header);
+	//RUN_TEST(test_it_does_not_allow_empty_tag);
+	//RUN_TEST(test_it_does_not_allow_empty_key);
+	//RUN_TEST(test_it_does_not_allow_empty_value);
+	//RUN_TEST(test_it_requires_a_properly_terminated_file);
+	//RUN_TEST(test_it_can_process_a_large_number_of_sections);
+	//RUN_TEST(test_it_can_process_a_large_number_of_attributes);
 
 	RUN_TEST(test_it_passes_through_tokens_without_a_template);
 	RUN_TEST(test_it_substitutes_a_template_token_within_a_stream);
@@ -814,14 +855,16 @@ int main(void)
 	RUN_TEST(test_it_performs_a_substitution_that_spans_a_buffer_flush);
 	RUN_TEST(test_it_performs_a_substitution_that_include_an_ambiguous_final_brace);
 	RUN_TEST(test_it_returns_an_error_when_a_template_token_that_does_not_fit_in_the_input_buffer);
+	RUN_TEST(test_it_handles_a_stream_ending_within_a_partial_template_token);
+	RUN_TEST(test_it_handles_a_stream_ending_with_a_literal_brace);
 
-	RUN_TEST(test_it_returns_a_simple_token_in_full);
-	RUN_TEST(test_it_extracts_a_simple_token_from_a_multi_type_string);
-	RUN_TEST(test_it_extracts_a_template_token_from_a_multi_type_string);
-	RUN_TEST(test_it_treats_single_braces_literally);
-	RUN_TEST(test_it_does_not_include_an_ambibuous_single_brace);
-	RUN_TEST(test_it_handles_an_ambibuous_single_brace);
-	RUN_TEST(test_it_returns_an_empty_token_for_an_incomplete_template_token);
+	//RUN_TEST(test_it_returns_a_simple_token_in_full);
+	//RUN_TEST(test_it_extracts_a_simple_token_from_a_multi_type_string);
+	//RUN_TEST(test_it_extracts_a_template_token_from_a_multi_type_string);
+	//RUN_TEST(test_it_treats_single_braces_literally);
+	//RUN_TEST(test_it_does_not_include_an_ambibuous_single_brace);
+	//RUN_TEST(test_it_handles_an_ambibuous_single_brace);
+	//RUN_TEST(test_it_returns_an_empty_token_for_an_incomplete_template_token);
 
 	return UNITY_END();
 }

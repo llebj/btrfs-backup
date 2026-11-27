@@ -484,19 +484,20 @@ enum InstallerCode process_stream_sized(
 	}
 
 	enum InstallerCode result = PI_OK;
-	size_t remaining	= 0,
-	       buffered		= 0,
+	size_t buffered		= 0,
 	       written		= 0,
 	       prefilled	= 0;	// The number of bytes in the input buffer that are already filled
 	char *out_ptr = out;
 
 	// The outer loop is responsible for continually fililng the input buffer.
 	for ( ; ; ) {
-		// WARN: What if `prefilled > in_size`?
 		char *in_ptr = in;
+		size_t read = 0;
+
 		// WARN: What if the fill fails?
-		(*fill)(ctx, in + prefilled, in_size - prefilled, &remaining);
-		remaining += prefilled;
+		(*fill)(ctx, in + prefilled, in_size - prefilled, &read);
+
+		size_t remaining = read + prefilled;
 		prefilled = 0;	// We have refilled so we are not carrying any bytes over.
 
 		if (remaining <= 0) {
@@ -534,23 +535,26 @@ enum InstallerCode process_stream_sized(
 				}
 			}
 			else if (in_token.token.size == 0 && in_token.token.start == NULL) {
-				if (remaining == in_size) {
-					// An empty token returned for a full buffer indicates
-					// a template token that overflows the buffer. We can't
-					// handle this case.
+				if (read == 0 || remaining == in_size) {
+					// An empty token returned with any carry-over indicates
+					// an incomplete template token; the input is therefore
+					// invalid.
 					result = PI_PARSE_FAIL;
 					break;
 				}
 				// An empty token means an incomplete substitution token
 				// therefore we move to the start and re-fill the buffer
 				// in an attempt to read the rest of the template.
-				memmove(in, in + in_size - remaining, remaining);
+				memmove(in, in_ptr, remaining);
 				prefilled = remaining;
 				break;
 			}
-			else if (in_token.token.size == 1 && in_token.token.start[0] == '{') {
-				// We need to do the same following an ambiguous final brace.
-				memmove(in, in + in_size - remaining, remaining);
+			else if (in_token.token.size == 1 && in_token.token.start[0] == '{' && read > 0) {
+				// We need to do the same following an ambiguous final brace, but
+				// only if we have read characters during this cycle. If no characters
+				// have been read then the final character is a literal '{' and
+				// should be written to the output buffer.
+				memmove(in, in_ptr, remaining);
 				prefilled = remaining;
 				break;
 			}
